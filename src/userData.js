@@ -41,29 +41,7 @@ export async function updateUserProfile(uid, data) {
   await update(ref(db, `users/${uid}`), data);
 }
 
-export async function getAllReviewsForPlace(placeName) {
-  // Returns reviews from all user profiles for a place (not the global reviews)
-  const usersSnap = await get(ref(db, "users"));
-  const reviews = [];
-  if (usersSnap.exists()) {
-    usersSnap.forEach(userSnap => {
-      const user = userSnap.val();
-      if (user.reviews && Array.isArray(user.reviews)) {
-        user.reviews.forEach(r => {
-          if (r.place === placeName) {
-            reviews.push({
-              ...r,
-              userName: user.name,
-              userPhoto: user.photoURL,
-              userId: userSnap.key
-            });
-          }
-        });
-      }
-    });
-  }
-  return reviews;
-}
+
 
 // ===============================
 // === GLOBAL REVIEWS BY PLACE ====

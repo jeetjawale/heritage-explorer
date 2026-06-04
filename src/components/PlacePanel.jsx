@@ -4,13 +4,17 @@ import { showSuccess, showError, showInfo } from "../utils/toastUtils";
 import {
   getUserProfile,
   updateUserProfile,
-  getAllReviewsForPlace,
+  getAllGlobalReviewsForPlace,
   addOrUpdateGlobalReview,
   deleteGlobalReview
 } from "../userData";
-import LoginSignupModal from "./LoginSignupModal";
 
-// ---- Auto-growing textarea for reviews ----
+import LoginSignupModal from "./LoginSignupModal";
+import { formatArrivalTime } from "../utils/timeUtils";
+import { haversineDistance } from "../utils/mathUtils";
+import { useUser } from "../contexts/UserContext";
+import { useMapContext } from "../contexts/MapContext";
+import { useWeather } from "../hooks/useWeather";
 function AutoGrowTextarea({ value, onChange, ...rest }) {
   const ref = useRef();
   useEffect(() => {
@@ -43,20 +47,16 @@ function AutoGrowTextarea({ value, onChange, ...rest }) {
   );
 }
 
-function formatArrivalTime(durationSeconds) {
-  const d = new Date(Date.now() + durationSeconds * 1000);
-  const pad = n => n < 10 ? "0" + n : n;
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
-export default function PlacePanel({
-  place, onClose, allPlaces = [],
-  user, setUser, onDirections,
-  routeSummary, onClearRoute
-}) {
+
+export default function PlacePanel() {
+  const { user, updateProfile, login } = useUser();
+  const { selected: place, handleClosePanel: onClose, filteredPlaces: allPlaces, handleShowRoute: onDirections, routeSummary, clearRoute: onClearRoute, handleSelectPlace: onSelectPlace } = useMapContext();
   const [firstLoad, setFirstLoad] = useState(true);
-  const [weather, setWeather] = useState(null);
-  const [weatherErr, setWeatherErr] = useState(null);
+  const { weather, weatherErr } = useWeather(place);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  // Reviews & favoritespolling
   const [favBusy, setFavBusy] = useState(false);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [allReviews, setAllReviews] = useState([]);
@@ -75,27 +75,12 @@ export default function PlacePanel({
   // Login modal
   const [showLoginModal, setShowLoginModal] = useState(false);
 
-  // Weather
-  useEffect(() => {
-    setWeather(null); setWeatherErr(null);
-    if (!place || !place.Latitude || !place.Longitude) return;
-    fetch(
-      `https://api.openweathermap.org/data/2.5/weather?lat=${place.Latitude}&lon=${place.Longitude}&appid=${OPENWEATHERMAP_KEY}&units=metric`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.cod === 200) setWeather(data);
-        else setWeatherErr("Weather unavailable");
-      })
-      .catch(() => setWeatherErr("Weather unavailable"));
-  }, [place]);
-
   // Reviews polling
   useEffect(() => {
     let cancelled = false, timer = null;
     async function fetchReviews(isInitial = false) {
       if (isInitial) setLoadingAllReviews(true);
-      const reviews = await getAllReviewsForPlace(place?.Places);
+      const reviews = await getAllGlobalReviewsForPlace(place?.Places);
       if (!cancelled) {
         setAllReviews(reviews);
         setLoadingAllReviews(false);
@@ -105,7 +90,7 @@ export default function PlacePanel({
     if (place && place.Places) {
       setFirstLoad(true);
       fetchReviews(true);
-      timer = setInterval(() => fetchReviews(false), 4000);
+      timer = setInterval(() => fetchReviews(false), 30000);
     } else {
       setAllReviews([]);
     }
@@ -114,25 +99,15 @@ export default function PlacePanel({
 
   function getNearbyPlaces(current, all, maxDistKm = 20) {
     if (!current || !current.Latitude || !current.Longitude) return [];
-    const R = 6371;
-    function dist(a, b) {
-      const dLat = (b.Latitude - a.Latitude) * Math.PI / 180;
-      const dLon = (b.Longitude - a.Longitude) * Math.PI / 180;
-      const lat1 = a.Latitude * Math.PI / 180;
-      const lat2 = b.Latitude * Math.PI / 180;
-      const x = dLon * Math.cos((lat1 + lat2) / 2);
-      const y = dLat;
-      return R * Math.sqrt(x * x + y * y);
-    }
     return all
       .filter(p =>
         (p.Places !== current.Places || p.Location !== current.Location) &&
         p.Latitude && p.Longitude &&
-        dist(current, p) <= maxDistKm
+        haversineDistance(current.Latitude, current.Longitude, p.Latitude, p.Longitude) <= maxDistKm
       )
       .map(p => ({
         ...p,
-        _dist_km: dist(current, p)
+        _dist_km: haversineDistance(current.Latitude, current.Longitude, p.Latitude, p.Longitude)
       }))
       .sort((a, b) => a._dist_km - b._dist_km)
       .slice(0, 5);
@@ -152,10 +127,7 @@ export default function PlacePanel({
     setFavBusy(true);
     try {
       const newFavorites = [...(user.favorites || []), Places];
-      await updateUserProfile(user.uid, { favorites: newFavorites });
-      const refreshed = await getUserProfile(user.uid);
-      setUser(refreshed);
-      localStorage.setItem("user", JSON.stringify(refreshed));
+      await updateProfile({ favorites: newFavorites });
       showSuccess("Added to favorites!");
     } catch (err) {
       showError("Failed to add favorite!");
@@ -166,10 +138,7 @@ export default function PlacePanel({
     setFavBusy(true);
     try {
       const newFavorites = (user.favorites || []).filter(f => f !== Places);
-      await updateUserProfile(user.uid, { favorites: newFavorites });
-      const refreshed = await getUserProfile(user.uid);
-      setUser(refreshed);
-      localStorage.setItem("user", JSON.stringify(refreshed));
+      await updateProfile({ favorites: newFavorites });
       showInfo("Removed from favorites.");
     } catch (err) {
       showError("Failed to remove favorite!");
@@ -215,7 +184,6 @@ export default function PlacePanel({
         text: reviewText,
         date: Date.now(),
         userName: user?.name || "User",
-        userPhoto: user?.photoURL || "",
         userId: user?.uid
       };
       await addOrUpdateGlobalReview(Places, newReview);
@@ -223,10 +191,7 @@ export default function PlacePanel({
         newReview,
         ...(user.reviews || []).filter(r => r.place !== Places)
       ];
-      await updateUserProfile(user.uid, { reviews: newReviews });
-      const refreshed = await getUserProfile(user.uid);
-      setUser(refreshed);
-      localStorage.setItem("user", JSON.stringify(refreshed));
+      await updateProfile({ reviews: newReviews });
       setReviewRating(0);
       setReviewText("");
       setReviewFormOpen(false);
@@ -263,7 +228,6 @@ export default function PlacePanel({
         text: editText,
         date: Date.now(),
         userName: user.name || "User",
-        userPhoto: user.photoURL || "",
         userId: user.uid
       };
       await addOrUpdateGlobalReview(Places, updatedReview);
@@ -271,10 +235,7 @@ export default function PlacePanel({
         updatedReview,
         ...(user.reviews || []).filter(r => r.place !== Places)
       ];
-      await updateUserProfile(user.uid, { reviews: newUserReviews });
-      const refreshed = await getUserProfile(user.uid);
-      setUser(refreshed);
-      localStorage.setItem("user", JSON.stringify(refreshed));
+      await updateProfile({ reviews: newUserReviews });
       showSuccess("Review updated!");
       setEditingReview(false);
       setEditText("");
@@ -290,10 +251,7 @@ export default function PlacePanel({
     try {
       await deleteGlobalReview(Places, user.uid);
       const newUserReviews = (user.reviews || []).filter(r => r.place !== Places);
-      await updateUserProfile(user.uid, { reviews: newUserReviews });
-      const refreshed = await getUserProfile(user.uid);
-      setUser(refreshed);
-      localStorage.setItem("user", JSON.stringify(refreshed));
+      await updateProfile({ reviews: newUserReviews });
       showSuccess("Review deleted!");
       setEditingReview(false);
       setEditText("");
@@ -604,7 +562,7 @@ export default function PlacePanel({
                       e.preventDefault();
                       onClose && onClose();
                       setTimeout(() =>
-                        window.dispatchEvent(new CustomEvent("flyToPlace", { detail: p })),
+                        onSelectPlace && onSelectPlace(p),
                         150
                       );
                     }}
@@ -665,19 +623,7 @@ export default function PlacePanel({
                 >
                   {/* Avatar and Name */}
                   <div style={{ minWidth: 42, textAlign: "center" }}>
-                    {r.userPhoto
-                      ? <img
-                          src={r.userPhoto}
-                          alt=""
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                            border: "1px solid rgba(27, 38, 49, 0.12)"
-                          }}
-                        />
-                      : <span
+                    <span
                           style={{
                             display: "inline-block",
                             width: 32,
@@ -693,7 +639,6 @@ export default function PlacePanel({
                         >
                           {r.userName?.[0]?.toUpperCase() || "?"}
                         </span>
-                    }
                     <div
                       style={{
                         fontWeight: 600,
@@ -915,9 +860,8 @@ export default function PlacePanel({
         {/* Login/Signup Modal */}
         {showLoginModal && (
           <LoginSignupModal
-            onLogin={profile => {
-              setUser(profile);
-              localStorage.setItem("user", JSON.stringify(profile));
+            onLogin={async (profile) => {
+              await login(profile);
               setShowLoginModal(false);
               setReviewFormOpen(true);
             }}

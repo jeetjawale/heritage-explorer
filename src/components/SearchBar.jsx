@@ -1,4 +1,5 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { useMapContext } from "../contexts/MapContext";
 
 const inputBoxStyle = {
   fontSize: 18,
@@ -16,17 +17,24 @@ const inputBoxStyle = {
   fontFamily: "var(--font-body)"
 };
 
-export default function SearchBar({ places, onSelect, onFocus, onBlur }) {
+export default function SearchBar({ onFocus, onBlur }) {
+  const { filteredPlaces: places, handleSelectPlace: onSelect } = useMapContext();
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
   const [show, setShow] = useState(false);
   const containerRef = useRef();
 
-  const filtered = q.length === 0 ? [] :
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQ(q), 150);
+    return () => clearTimeout(timer);
+  }, [q]);
+
+  const filtered = debouncedQ.length === 0 ? [] :
     places.filter(p =>
       [p.Places, p.Location, p.District, p.Category]
         .some(field =>
           field &&
-          field.toLowerCase().includes(q.toLowerCase())
+          field.toLowerCase().includes(debouncedQ.toLowerCase())
         )
     ).slice(0, 8);
 

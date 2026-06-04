@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { getAllGlobalReviewsForPlace } from "../userData";
-import { getAllReviewsForPlace } from "../userData"; // <-- not getAllGlobalReviewsForPlace!
+import { haversineDistance } from "../utils/mathUtils";
+import { useMapContext } from "../contexts/MapContext";
 
-export default function PopularNearYou({ places, userLocation, selectedDistricts }) {
+export default function PopularNearYou({ userLocation, selectedDistricts }) {
+  const { filteredPlaces: places, handleSelectPlace: onSelectPlace } = useMapContext();
   const [nearby, setNearby] = useState([]);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export default function PopularNearYou({ places, userLocation, selectedDistricts
       // Fetch reviews for each place in parallel
       const enriched = await Promise.all(filtered.map(async (p) => {
         
-        const reviews = await getAllReviewsForPlace(p.Places);
+        const reviews = await getAllGlobalReviewsForPlace(p.Places);
         const count = reviews.length;
         // Calculate the average rating from all reviews (not just the latest!)
         const avg = count
@@ -60,13 +62,13 @@ export default function PopularNearYou({ places, userLocation, selectedDistricts
     }
 
     fetchData();
-    timer = setInterval(fetchData, 4000); // Poll every 4 seconds
+    timer = setInterval(fetchData, 30000); // Poll every 30 seconds
 
     return () => { cancelled = true; clearInterval(timer); };
   }, [places, userLocation, selectedDistricts]);
 
   function handleClick(p) {
-    window.dispatchEvent(new CustomEvent("flyToPlace", { detail: p }));
+    if (onSelectPlace) onSelectPlace(p);
   }
 
   const panelTitle = selectedDistricts && selectedDistricts.length === 1
@@ -146,14 +148,4 @@ export default function PopularNearYou({ places, userLocation, selectedDistricts
   );
 }
 
-function haversineDistance(lat1, lon1, lat2, lon2) {
-  const toRad = d => (d * Math.PI) / 180;
-  const R = 6371;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+

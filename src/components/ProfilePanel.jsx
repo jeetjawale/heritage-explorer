@@ -1,18 +1,5 @@
-import React, { useRef } from "react";
-
-export default function ProfilePanel({ user, onClose, onLogout, onProfileImage }) {
-  const fileInputRef = useRef();
-
-  function handleImage(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      onProfileImage(ev.target.result); // Pass base64 URL to parent!
-    };
-    reader.readAsDataURL(file);
-  }
-
+import React from "react";
+export default function ProfilePanel({ user, onClose, onLogout }) {
   if (!user) return null;
   return (
     <div
@@ -42,22 +29,25 @@ export default function ProfilePanel({ user, onClose, onLogout, onProfileImage }
         &times;
       </button>
       <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 8 }}>
-        <label style={{ cursor: "pointer" }}>
-          <img
-            src={user.photoURL || "https://api.dicebear.com/7.x/miniavs/svg?seed=" + encodeURIComponent(user.name)}
-            alt="profile"
-            style={{ width: 55, height: 55, borderRadius: "50%", boxShadow: "var(--panel-shadow)", objectFit: "cover" }}
-            title="Click to change photo"
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-          />
-          <input
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            ref={fileInputRef}
-            onChange={handleImage}
-          />
-        </label>
+        <div>
+          <span
+            style={{
+              width: 55,
+              height: 55,
+              borderRadius: "50%",
+              display: "inline-block",
+              background: "rgba(15, 91, 115, 0.12)",
+              color: "var(--accent-strong)",
+              fontSize: 28,
+              textAlign: "center",
+              lineHeight: "55px",
+              fontWeight: 700,
+              boxShadow: "var(--panel-shadow)"
+            }}
+          >
+            {user.name ? user.name.charAt(0).toUpperCase() : "👤"}
+          </span>
+        </div>
         <div>
           <b style={{ fontSize: 20, fontFamily: "var(--font-display)", color: "var(--accent-strong)" }}>{user.name}</b>
           <div style={{ color: "var(--muted)", fontSize: 16 }}>From: {user.from}</div>
